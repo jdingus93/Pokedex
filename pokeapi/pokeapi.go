@@ -23,6 +23,14 @@ type LocationResponse struct {
 	Results []LocationArea `json:"results"`
 }
 
+type LocationAreaDetail struct {
+	PokemonEncounters []struct {
+		Pokemon struct {
+			Name string `json:"name"`
+		} `json:"pokemon"`
+	} `json:"pokemon_encounters"`
+}
+
 type LocationArea struct {
 	Name string `json:"name"`
 	URL string `json:"url"`
