@@ -5,6 +5,7 @@ import (
 	"strings"
 	"bufio"
 	"os"
+	"github.com/jdingus/Pokedex/pokeapi"
 )
 
 type cliCommand struct {
@@ -13,9 +14,17 @@ type cliCommand struct {
 	callback func() error
 }
 
-var commands map[string]cliCommand
+var commands = make(map[string]cliCommand)
+var config = struct {
+	Next 	*string
+	Previous	*string
+	}{
+		Next: nil,
+		Previous: nil,
+	}
 
 func main() {
+
 	var commands = map[string]cliCommand{
 		"exit": {
 			name: "exit",
@@ -27,12 +36,23 @@ func main() {
 			description: "Displays a help message",
 			callback: commandHelp,
 		},
+		"map": {
+			name:	"map",
+			description: 	"Fetch and display the next 20 location areas",
+			callback: 	commandMap,
+		},
+		"mapb": {
+			name: 	"mapb",
+			description: 	"Fetch and display the prevoius 20 location areas",
+			callback: 	commandMapBack,
+		},
 	}
 	
+	fmt.Println("Welcome to the Pokedex!")
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for {
-	fmt.Print("Pokedex >")
+	fmt.Print("Pokedex > ")
 	scanner.Scan()
 	userInput := scanner.Text()
 	
@@ -48,9 +68,9 @@ func main() {
 				fmt.Println(err)
 			}
 		} else {
-	fmt.Println("Unkown command")
+			fmt.Println("Unkown command")
+		}
 	}
-}
 }
 
 func commandExit() error {
@@ -69,6 +89,53 @@ func commandHelp() error {
 	}
 	return nil
 }
+
+func commandMap() error {
+	url := "https://pokeapi.co/api/v2/location-area/"
+	if config.Next != nil {
+		url = *config.Next
+	}
+	fmt.Println("fgetching from URL:" , url)
+
+	data, err := pokeapi.FetchLocationAreas(url)
+	if err != nil {
+		return fmt.Errorf("error fetching location areas: %w", err)
+	}
+	fmt.Printf("got response: Nest=%v, Previous=%v, Results=%d\n",
+				data.Next, data.Previous, len(data.Results))
+
+	fmt.Println("location areas:")
+	if len(data.Results) == 0 {
+		fmt.Println("no locations found!")
+	}
+	for i, location := range data.Results {
+		fmt.Printf("%d. %s\n", i+1, location.Name)
+	}
+	config.Next = data.Next
+	config.Previous = data.Previous
+	return nil
+}
+
+func commandMapBack() error {
+	if config.Previous == nil {
+		fmt.Println("You're on the first page.")
+		return nil
+	}
+
+	data, err := pokeapi.FetchLocationAreas(*config.Previous)
+	if err != nil {
+		return fmt.Errorf("error fetching location areas: %w", err)
+	}
+	
+	for _, location := range data.Results {
+		fmt.Println(location.Name)
+	}
+
+	config.Next = data.Next
+	config.Previous = data.Previous
+	return nil
+}
+
 
 func cleanInput(text string) []string {
 	fields := strings.Fields(text)
