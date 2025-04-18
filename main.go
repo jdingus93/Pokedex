@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"strings"
+	"math/rand"
+	"errors"
 
 	"github.com/jdingus/Pokedex/pokeapi"
 )
@@ -28,6 +30,21 @@ var config = struct {
 		Next: nil,
 		Previous: nil,
 	}
+
+var caughtPokemon = make(map[string]Pokemon)
+type Pokemon struct {
+	Name string
+	Height int
+	Weight int
+	Stats []Stat
+	Types []string
+	BaseExperience int
+}
+
+type Stat struct {
+	Name string
+	Value int
+}
 
 func main() {
 
@@ -57,6 +74,17 @@ func main() {
 			description: "Shows what Pokemon are in the area",
 			callback: commandExplore,
 		},
+		"catch": {
+			name: "catch",
+			description: "Attempt to catch a Pokemon",
+			callback: commandCatch,
+		},
+		"inspect": {
+			name: "inspect",
+			description: "Inspect a pokemon's stats",
+			callback: commandInspect,
+		},
+		
 	}
 	
 	fmt.Println("Welcome to the Pokedex!")
@@ -172,7 +200,7 @@ func commandExplore(param string) error {
 		}
 		defer resp.Body.Close()
 
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return err
 		}
@@ -188,6 +216,116 @@ func commandExplore(param string) error {
 	for _, pokemon := range locationArea.PokemonEncounters {
 		fmt.Printf(" - %s\n", pokemon.Pokemon.Name)
 	}
+	return nil
+}
+
+func commandCatch(param string) error {
+	args := strings.Split(param, " ")
+	if len(args) == 0 {
+		return errors.New("you must provide a pokemon name")
+	}
+	pokemonName := args[0]
+	fmt.Printf("Throwing a Pokeball at %s...\n", pokemonName)
+
+	url := fmt.Sprintf("https://pokeapi.co/api/v2/pokemon/%s", pokemonName)
+	res, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != 200 {
+		return fmt.Errorf("pokemon %s not found", pokemonName)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+
+	var pokemonData struct {
+		BaseExperience int `json:"base_experience"`
+		Height int `json:"height"`
+		Weight int `json:"weight"`
+		Name string `json:"name"`
+		Stats []struct {
+			BaseStat int `json:"base_stat"`
+			Stat struct {
+				Name string `json:"name"`
+			} `json:"stat"`
+		} `json:"stats"`
+		Types []struct {
+			Type struct {
+				Name string `json:"name"`
+			 } `json:"type"`
+		} `json:"types"`
+	}
+
+	if err := json.Unmarshal(body, &pokemonData); err != nil {
+		return err
+	}
+
+	baseExperience := pokemonData.BaseExperience
+	catchProbability := 100.0 / float64(baseExperience)
+	caught := rand.Float64() < catchProbability
+
+	if caught {
+		fmt.Printf("%s was caught!\n", pokemonName)
+
+		var stats []Stat
+		for _, statData := range pokemonData.Stats {
+			stats = append(stats, Stat{
+				Name: statData.Stat.Name,
+				Value: statData.BaseStat,
+			})
+		}
+		var types []string
+		for _, typeData := range pokemonData.Types {
+			types = append(types, typeData.Type.Name)
+		}
+
+		caughtPokemon[pokemonName] = Pokemon{
+			Name: pokemonName,
+			Height: pokemonData.Height,
+			Weight: pokemonData.Weight,
+			Stats: stats,
+			Types: types,
+			BaseExperience: pokemonData.BaseExperience,
+		}
+	} else {
+		fmt.Printf("%s escaped!\n", pokemonName)
+	}
+	
+	return nil
+}
+
+func commandInspect(param string) error {
+	args := strings.Split(param, " ")
+	if len(args) != 1 {
+		return fmt.Errorf("you must provide a pokemon name")
+	}
+	
+	pokemonName := args[0]
+
+	pokemon, ok := caughtPokemon[pokemonName]
+	if !ok {
+		fmt.Println("you have not caught that pokemon")
+		return nil
+	}
+
+	fmt.Printf("Name: %s\n", pokemon.Name)
+	fmt.Printf("Height: %d\n", pokemon.Height)
+	fmt.Printf("Weight: %d\n", pokemon.Weight)
+
+	fmt.Println("Stats:")
+	for _, stat := range pokemon.Stats {
+		fmt.Printf("	-%s: %d\n", stat.Name, stat.Value)
+	}
+	fmt.Println("Types:")
+	for _, typeName := range pokemon.Types {
+		fmt.Printf("	-%s\n", typeName)
+	}
+
 	return nil
 }
 
